@@ -1,3 +1,5 @@
+问卷的json协议有了，从问卷的目的出发，通过启发式的5-6轮对话，即可得到该json，输出给他即可得到url
+
 <div align=center>
   <p>
     <img src="https://img-hxy021.didistatic.com/static/starimg/img/j8lBA6yy201698840712358.jpg"  width="300" align='center' />

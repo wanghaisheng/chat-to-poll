@@ -14,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { MessageModule } from './modules/message/message.module';
 import { FileModule } from './modules/file/file.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { UpgradeModule } from './modules/upgrade/upgrade.module';
 
 import { join } from 'path';
 
@@ -35,16 +36,21 @@ import { MessagePushingLog } from './models/messagePushingLog.entity';
 import { WorkspaceMember } from './models/workspaceMember.entity';
 import { Workspace } from './models/workspace.entity';
 import { Collaborator } from './models/collaborator.entity';
+import { DownloadTask } from './models/downloadTask.entity';
+import { Session } from './models/session.entity';
 
 import { LoggerProvider } from './logger/logger.provider';
 import { PluginManagerProvider } from './securityPlugin/pluginManager.provider';
 import { LogRequestMiddleware } from './middlewares/logRequest.middleware';
-import { XiaojuSurveyPluginManager } from './securityPlugin/pluginManager';
+import { PluginManager } from './securityPlugin/pluginManager';
 import { Logger } from './logger';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({}),
+    ConfigModule.forRoot({
+      envFilePath: `.env.${process.env.NODE_ENV}`, // 根据 NODE_ENV 动态加载对应的 .env 文件
+      isGlobal: true, // 使配置模块在应用的任何地方可用
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -81,6 +87,8 @@ import { Logger } from './logger';
             Workspace,
             WorkspaceMember,
             Collaborator,
+            DownloadTask,
+            Session,
           ],
         };
       },
@@ -100,6 +108,7 @@ import { Logger } from './logger';
     MessageModule,
     FileModule,
     WorkspaceModule,
+    UpgradeModule,
   ],
   controllers: [AppController],
   providers: [
@@ -114,7 +123,7 @@ import { Logger } from './logger';
 export class AppModule {
   constructor(
     private readonly configService: ConfigService,
-    private readonly pluginManager: XiaojuSurveyPluginManager,
+    private readonly pluginManager: PluginManager,
   ) {}
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(LogRequestMiddleware).forRoutes('*');

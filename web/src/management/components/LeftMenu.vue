@@ -6,9 +6,12 @@
         <div
           :class="[
             'tab-btn',
-            (['QuestionEditIndex', 'QuestionEditSetting', 'QuestionSkinSetting'].includes(
-              route.name
-            ) &&
+            ([
+              'QuestionEditIndex',
+              'QuestionEditSetting',
+              'QuestionSkinSetting',
+              'QuestionEditResultConfig'
+            ].includes(route.name) &&
               tab.to.name === 'QuestionEditIndex') ||
             isActive
               ? 'router-link-active'
@@ -26,13 +29,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useStore } from 'vuex'
+import { ref, watch } from 'vue'
+import { useEditStore } from '@/management/stores/edit'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 import LogoIcon from './LogoIcon.vue'
-import { SurveyPermissions } from '@/management/utils/types/workSpace.ts'
-const store = useStore()
+import { SurveyPermissions } from '@/management/utils/workSpace'
+const editStore = useEditStore()
 
 const tabArr = [
   {
@@ -58,18 +61,22 @@ const tabArr = [
   }
 ]
 const tabs = ref([])
-onMounted(async () => {
-  await store.dispatch('fetchCooperPermissions', route.params.id)
-  // 如果有问卷管理权限，则加入问卷编辑和投放菜单
-  if (store.state.cooperPermissions.includes(SurveyPermissions.SurveyManage)) {
-    tabs.value.push(tabArr[0])
-    tabs.value.push(tabArr[1])
-  }
-  // 如果有数据分析权限，则加入数据分析菜单
-  if (store.state.cooperPermissions.includes(SurveyPermissions.DataManage)) {
-    tabs.value.push(tabArr[2])
-  }
-})
+watch(
+  () => editStore.cooperPermissions,
+  (newVal) => {
+    tabs.value = []
+    // 如果有问卷管理权限，则加入问卷编辑和投放菜单
+    if (newVal.includes(SurveyPermissions.SurveyManage)) {
+      tabs.value.push(tabArr[0])
+      tabs.value.push(tabArr[1])
+    }
+    // 如果有数据分析权限，则加入数据分析菜单
+    if (newVal.includes(SurveyPermissions.DataManage)) {
+      tabs.value.push(tabArr[2])
+    }
+  },
+  { immediate: true }
+)
 </script>
 <style lang="scss" scoped>
 .nav {

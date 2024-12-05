@@ -8,22 +8,30 @@
           {{ saveText }}
         </span>
         <i-ep-loading class="icon" v-if="autoSaveStatus === 'saving'" />
-        <i-ep-check class="icon succeed" v-else-if="autoSaveStatus === 'succeed'" />
+        <i-ep-check class="icon succeed" v-if="autoSaveStatus === 'succeed'" />
       </div>
     </transition>
   </div>
 </template>
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
-import { useStore } from 'vuex'
-import { get as _get } from 'lodash-es'
-import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useEditStore } from '@/management/stores/edit'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import 'element-plus/theme-chalk/src/message.scss'
 
 import { saveSurvey } from '@/management/api/survey'
-import { showLogicEngine } from '@/management/hooks/useShowLogicEngine'
 import buildData from './buildData'
 
+interface Props {
+  updateLogicConf: any
+  updateWhiteConf: any
+  seize: any
+}
+
+const route = useRoute()
+const props = defineProps<Props>()
 const isSaving = ref<boolean>(false)
 const isShowAutoSave = ref<boolean>(false)
 const autoSaveStatus = ref<'succeed' | 'saving' | 'failed'>('succeed')
@@ -36,31 +44,44 @@ const saveText = computed(
     })[autoSaveStatus.value]
 )
 
-const store = useStore()
+const editStore = useEditStore()
+const { schemaUpdateTime, schema, sessionId } = storeToRefs(editStore)
 
-const saveData = async () => {
-  const saveData = buildData(store.state.edit.schema)
+const validate = () => {
+  let checked = true
+  let msg = ''
+  if (route.path.includes('edit/logic')) {
+    const { validated, message } = props.updateLogicConf()
+    checked = validated
+    msg = message
+  }
+
+  if (route.path.includes('edit/setting')) {
+    const { validated, message } = props.updateWhiteConf()
+    checked = validated
+    msg = message
+  }
+
+  return {
+    checked,
+    msg
+  }
+}
+
+const onSave = async () => {
+  const saveData = buildData(schema.value, sessionId.value)
+  if (!saveData.sessionId) {
+    ElMessage.error('sessionId有误')
+    return null
+  }
 
   if (!saveData.surveyId) {
     ElMessage.error('未获取到问卷id')
     return null
   }
 
-  const res = await saveSurvey(saveData)
+  const res: Record<string, any> = await saveSurvey(saveData)
   return res
-}
-
-const updateLogicConf = () => {
-  if (
-    showLogicEngine.value &&
-    showLogicEngine.value.rules &&
-    showLogicEngine.value.rules.length !== 0
-  ) {
-    showLogicEngine.value.validateSchema()
-    const showLogicConf = showLogicEngine.value.toJson()
-    // 更新逻辑配置
-    store.dispatch('edit/changeSchema', { key: 'logicConf', value: { showLogicConf } })
-  }
 }
 
 const timerHandle = ref<NodeJS.Timeout | number | null>(null)
@@ -78,20 +99,23 @@ const triggerAutoSave = () => {
       isShowAutoSave.value = true
       nextTick(async () => {
         try {
-          const res: any = await saveData()
-          if (res.code === 200) {
-            autoSaveStatus.value = 'succeed'
-          } else {
-            autoSaveStatus.value = 'failed'
+          const res: any = await doSave()
+          if (res !== undefined)  {
+            if (res.code === 200) {
+              autoSaveStatus.value = 'succeed'
+            } else {
+              autoSaveStatus.value = 'failed'
+            }
+            isShowAutoSave.value = true
           }
-
+        } catch (err) {
+          autoSaveStatus.value = 'failed'
+          isShowAutoSave.value = true
+        } finally {
           setTimeout(() => {
             isShowAutoSave.value = false
             timerHandle.value = null
           }, 300)
-        } catch (err) {
-          autoSaveStatus.value = 'failed'
-          isShowAutoSave.value = true
         }
       })
     }, 2000)
@@ -99,25 +123,48 @@ const triggerAutoSave = () => {
 }
 
 const handleSave = async () => {
+  const res: any = await doSave()
+  if (res !== undefined && res.code === 200) {
+    ElMessage.success('保存成功')
+  }
+}
+
+/**
+ * 保存问卷
+ * @return 无返回时说明保存失败并由函数内部完成统一提示，有返回时，code为200为保存成功，不为200时，使用errmsg由外部实现错误信息展示
+ */
+const doSave = async () => {
   if (isSaving.value) {
     return
   }
 
-  isSaving.value = true
   isShowAutoSave.value = false
 
-  try {
-    updateLogicConf()
-  } catch (error) {
-    isSaving.value = false
-    ElMessage.error('请检查逻辑配置是否有误')
+  // 保存检测
+  const { checked, msg } = validate()
+  if (!checked) {
+    ElMessage.error(msg)
     return
   }
 
+  isSaving.value = true
+
   try {
-    const res: any = await saveData()
+    const res: any = await onSave()
+    if (!res) {
+      return
+    }
     if (res.code === 200) {
-      ElMessage.success('保存成功')
+      return res
+    } else if (res.code === 3006) {
+      ElMessageBox.alert(res.errmsg, '提示', {
+        confirmButtonText: '刷新同步',
+        callback: (action: string) => {
+          if (action === 'confirm') {
+            props.seize(sessionId.value)
+          }
+        }
+      })
     } else {
       ElMessage.error(res.errmsg)
     }
@@ -128,7 +175,6 @@ const handleSave = async () => {
   }
 }
 
-const schemaUpdateTime = computed(() => _get(store.state, 'edit.schemaUpdateTime'))
 watch(schemaUpdateTime, () => {
   triggerAutoSave()
 })

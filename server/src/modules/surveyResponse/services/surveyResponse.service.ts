@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MongoRepository } from 'typeorm';
 import { SurveyResponse } from 'src/models/surveyResponse.entity';
+
 @Injectable()
 export class SurveyResponseService {
   constructor(
@@ -12,7 +13,7 @@ export class SurveyResponseService {
   async createSurveyResponse({
     data,
     clientTime,
-    difTime,
+    diffTime,
     surveyId,
     surveyPath,
     optionTextAndId,
@@ -22,7 +23,7 @@ export class SurveyResponseService {
       data,
       secretKeys: [],
       clientTime,
-      difTime,
+      diffTime,
       pageId: surveyId,
       optionTextAndId,
     });
@@ -35,14 +36,11 @@ export class SurveyResponseService {
   }
 
   async getSurveyResponseTotalByPath(surveyPath: string) {
-    const count = await this.surveyResponseRepository.count({
+    const data = await this.surveyResponseRepository.find({
       where: {
         surveyPath,
-        'curStatus.status': {
-          $ne: 'removed',
-        },
       },
     });
-    return count;
+    return (data || []).length;
   }
 }

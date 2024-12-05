@@ -5,18 +5,8 @@ import {
   keys as _keys,
   set as _set
 } from 'lodash-es'
-
-const regexpMap = {
-  nd: /^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/,
-  m: /^[1]([3-9])[0-9]{9}$/,
-  idcard: /^(\d{15}$|^\d{18}$|^\d{17}(\d|X|x))$/,
-  strictIdcard:
-    /(^[1-9]\d{5}(18|19|([23]\d))\d{2}((0[1-9])|(10|11|12))(([0-2][1-9])|10|20|30|31)\d{3}[0-9Xx]$)|(^[1-9]\d{5}\d{2}((0[1-9])|(10|11|12))(([0-2][1-9])|10|20|30|31)\d{2}$)/,
-  n: /^[0-9]+([.]{1}[0-9]+){0,1}$/,
-  e: /^(\w-*\.*)+@(\w-?)+(\.\w{2,})+$/,
-  licensePlate:
-    /^([京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼使领A-Z]{1}[a-zA-Z](([DFAG]((?![IO])[a-zA-Z0-9](?![IO]))[0-9]{4})|([0-9]{5}[DF]))|[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼使领A-Z]{1}[A-Z]{1}[A-Z0-9]{4,5}[A-Z0-9挂学警港澳]{1})$/
-}
+import { INPUT, RATES, QUESTION_TYPE } from '@/common/typeEnum.ts'
+import { regexpMap } from '@/common/regexpMap.ts'
 
 const msgMap = {
   '*': '必填',
@@ -28,13 +18,11 @@ const msgMap = {
   e: '请输入邮箱',
   licensePlate: '请输入车牌号'
 }
-const inputType = ['text', 'textarea']
 const checkBoxTip = '至少选择#min#项，少选择了#less#项'
 const checkBoxTipSame = '请选择#min#项，少选择了#less#项'
 const textRangeMinTip = '至少输入#min#字'
 const numberRangeMinTip = '数字最小为#min#'
 const numberRangeMaxTip = '数字最大为#max#'
-const radioType = ['radio-star', 'radio-nps']
 
 // 多选题的选项数目限制
 export function optionValidator(value, minNum, maxNum) {
@@ -88,7 +76,7 @@ export function generateValidArr(
   numberRangeMax
 ) {
   const validArr = []
-  const isInput = inputType.indexOf(type) !== -1
+  const isInput = INPUT.indexOf(type) !== -1
   if (isRequired || valid === '*') {
     // 输入框的必填校验做trim
     if (!isInput) {
@@ -196,17 +184,19 @@ export function generateValidArr(
 
 // 生成选择类或者评分类的题目的更多输入框
 const generateOthersKeyMap = (question) => {
-  const { type, field, options, rangeConfig } = question
+  const { type, field } = question
   let othersKeyMap = undefined
 
-  if (radioType.includes(type)) {
+  if (RATES.includes(type)) {
+    const { rangeConfig } = question
     othersKeyMap = {}
     for (const key in rangeConfig) {
       if (rangeConfig[key].isShowInput) {
         othersKeyMap[`${field}_${key}`] = key
       }
     }
-  } else if (type.includes('radio') || type.includes('checkbox')) {
+  } else if (type?.includes(QUESTION_TYPE.RADIO) || type?.includes(QUESTION_TYPE.CHECKBOX)) {
+    const { options } = question
     othersKeyMap = {}
     options
       .filter((op) => op.others)
@@ -258,7 +248,7 @@ export default function (questionConfig) {
 
     // 对于选择题支持填写更多信息的，需要做是否必填的校验
     if (_keys(othersKeyMap).length) {
-      if (radioType.includes(type)) {
+      if (RATES.includes(type)) {
         if (rangeConfig) {
           for (const key in rangeConfig) {
             if (rangeConfig[key].isShowInput && rangeConfig[key].required) {

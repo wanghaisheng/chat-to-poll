@@ -1,5 +1,4 @@
 import axios from './base'
-
 // 空间
 export const createSpace = ({ name, description, members }: any) => {
   return axios.post('/workspace', { name, description, members })
@@ -9,12 +8,18 @@ export const updateSpace = ({ workspaceId, name, description, members }: any) =>
   return axios.post(`/workspace/${workspaceId}`, { name, description, members })
 }
 
-export const getSpaceList = () => {
-  return axios.get('/workspace')
+export const getSpaceList = (params: any) => {
+  return axios.get('/workspace', {
+    params
+  })
 }
 
 export const getSpaceDetail = (workspaceId: string) => {
   return axios.get(`/workspace/${workspaceId}`)
+}
+
+export const getMemberList = () => {
+  return axios.get('/workspace/member/list')
 }
 
 export const deleteSpace = (workspaceId: string) => {
@@ -29,7 +34,7 @@ export const getUserList = (username: string) => {
   })
 }
 
-// 协作权限列表
+// 获取协作权限下拉框枚举
 export const getPermissionList = () => {
   return axios.get('collaborator/getPermissionList')
 }

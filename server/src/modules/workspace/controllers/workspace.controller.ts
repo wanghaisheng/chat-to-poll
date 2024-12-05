@@ -9,6 +9,7 @@ import {
   Request,
   SetMetadata,
   HttpCode,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import moment from 'moment';
@@ -31,6 +32,9 @@ import { splitMembers } from '../utils/splitMember';
 import { UserService } from 'src/modules/auth/services/user.service';
 import { SurveyMetaService } from 'src/modules/survey/services/surveyMeta.service';
 import { Logger } from 'src/logger';
+import { GetWorkspaceListDto } from '../dto/getWorkspaceList.dto';
+import { WorkspaceMember } from 'src/models/workspaceMember.entity';
+import { Workspace } from 'src/models/workspace.entity';
 
 @ApiTags('workspace')
 @ApiBearerAuth()
@@ -60,10 +64,7 @@ export class WorkspaceController {
   async create(@Body() workspace: CreateWorkspaceDto, @Request() req) {
     const { value, error } = CreateWorkspaceDto.validate(workspace);
     if (error) {
-      this.logger.error(
-        `CreateWorkspaceDto validate failed: ${error.message}`,
-        { req },
-      );
+      this.logger.error(`CreateWorkspaceDto validate failed: ${error.message}`);
       throw new HttpException(
         `参数错误: 请联系管理员`,
         EXCEPTION_CODE.PARAMETER_ERROR,
@@ -99,10 +100,12 @@ export class WorkspaceController {
       }
     }
     const userId = req.user._id.toString();
+    const username = req.user.username;
     // 插入空间表
     const retWorkspace = await this.workspaceService.create({
       name: value.name,
       description: value.description,
+      owner: username,
       ownerId: userId,
     });
     const workspaceId = retWorkspace._id.toString();
@@ -116,6 +119,8 @@ export class WorkspaceController {
       await this.workspaceMemberService.batchCreate({
         workspaceId,
         members: value.members,
+        creator: username,
+        creatorId: userId,
       });
     }
     return {
@@ -128,8 +133,20 @@ export class WorkspaceController {
 
   @Get()
   @HttpCode(200)
-  async findAll(@Request() req) {
+  async findAll(@Request() req, @Query() queryInfo: GetWorkspaceListDto) {
+    const { value, error } = GetWorkspaceListDto.validate(queryInfo);
+    if (error) {
+      this.logger.error(
+        `GetWorkspaceListDto validate failed: ${error.message}`,
+      );
+      throw new HttpException(
+        `参数错误: 请联系管理员`,
+        EXCEPTION_CODE.PARAMETER_ERROR,
+      );
+    }
     const userId = req.user._id.toString();
+    const curPage = Number(value.curPage);
+    const pageSize = Number(value.pageSize);
     // 查询当前用户参与的空间
     const workspaceInfoList = await this.workspaceMemberService.findAllByUserId(
       { userId },
@@ -139,9 +156,16 @@ export class WorkspaceController {
       pre[cur.workspaceId] = cur;
       return pre;
     }, {});
+
     // 查询当前用户的空间列表
-    const list = await this.workspaceService.findAllById({ workspaceIdList });
-    const ownerIdList = list.map((item) => item.ownerId);
+    const { list, count } =
+      await this.workspaceService.findAllByIdWithPagination({
+        workspaceIdList,
+        page: curPage,
+        limit: pageSize,
+        name: queryInfo.name,
+      });
+    const ownerIdList = list.map((item: { ownerId: any }) => item.ownerId);
     const userList = await this.userService.getUserListByIds({
       idList: ownerIdList,
     });
@@ -150,6 +174,7 @@ export class WorkspaceController {
       pre[id] = cur;
       return pre;
     }, {});
+
     const surveyTotalList = await Promise.all(
       workspaceIdList.map((item) => {
         return this.surveyMetaService.countSurveyMetaByWorkspaceId({
@@ -185,7 +210,7 @@ export class WorkspaceController {
           const ownerInfo = userInfoMap?.[item.ownerId] || {};
           return {
             ...item,
-            createDate: moment(item.createDate).format('YYYY-MM-DD HH:mm:ss'),
+            createdAt: moment(item.createdAt).format('YYYY-MM-DD HH:mm:ss'),
             owner: ownerInfo.username,
             currentUserId: curWorkspaceInfo.userId,
             currentUserRole: curWorkspaceInfo.role,
@@ -193,6 +218,7 @@ export class WorkspaceController {
             memberTotal: memberTotalMap[workspaceId] || 0,
           };
         }),
+        count,
       },
     };
   }
@@ -246,13 +272,24 @@ export class WorkspaceController {
   @UseGuards(WorkspaceGuard)
   @SetMetadata('workspacePermissions', [WORKSPACE_PERMISSION.WRITE_WORKSPACE])
   @SetMetadata('workspaceId', 'params.id')
-  async update(@Param('id') id: string, @Body() workspace: CreateWorkspaceDto) {
+  async update(
+    @Param('id') id: string,
+    @Body() workspace: CreateWorkspaceDto,
+    @Request() req,
+  ) {
     const members = workspace.members;
     if (!Array.isArray(members) || members.length === 0) {
       throw new HttpException('成员不能为空', EXCEPTION_CODE.PARAMETER_ERROR);
     }
     delete workspace.members;
-    const updateRes = await this.workspaceService.update(id, workspace);
+    const operator = req.user.username,
+      operatorId = req.user._id.toString();
+    const updateRes = await this.workspaceService.update({
+      id,
+      workspace,
+      operator,
+      operatorId,
+    });
     this.logger.info(`updateRes: ${JSON.stringify(updateRes)}`);
     const { newMembers, adminMembers, userMembers } = splitMembers(members);
     if (
@@ -298,14 +335,20 @@ export class WorkspaceController {
       this.workspaceMemberService.batchCreate({
         workspaceId: id,
         members: newMembers,
+        creator: operator,
+        creatorId: operatorId,
       }),
       this.workspaceMemberService.batchUpdate({
         idList: adminMembers,
         role: WORKSPACE_ROLE.ADMIN,
+        operator,
+        operatorId,
       }),
       this.workspaceMemberService.batchUpdate({
         idList: userMembers,
         role: WORKSPACE_ROLE.USER,
+        operator,
+        operatorId,
       }),
     ]);
     this.logger.info(`updateRes: ${JSON.stringify(res)}`);
@@ -319,11 +362,65 @@ export class WorkspaceController {
   @UseGuards(WorkspaceGuard)
   @SetMetadata('workspacePermissions', [WORKSPACE_PERMISSION.WRITE_WORKSPACE])
   @SetMetadata('workspaceId', 'params.id')
-  async delete(@Param('id') id: string) {
-    const res = await this.workspaceService.delete(id);
+  async delete(@Param('id') id: string, @Request() req) {
+    const operator = req.user.username,
+      operatorId = req.user._id.toString();
+    const res = await this.workspaceService.delete(id, {
+      operator,
+      operatorId,
+    });
     this.logger.info(`res: ${JSON.stringify(res)}`);
     return {
       code: 200,
+    };
+  }
+
+  @Get('/member/list')
+  @HttpCode(200)
+  async getWorkspaceAndMember(@Request() req) {
+    const userId = req.user._id.toString();
+
+    // 所在所有空间
+    const workspaceList = await this.workspaceService.findAllByUserId(userId);
+    if (!workspaceList.length) {
+      return {
+        code: 200,
+        data: [],
+      };
+    }
+
+    // 所有空间下的所有成员
+    const workspaceMemberList =
+      await this.workspaceMemberService.batchSearchByWorkspace(
+        workspaceList.map((item) => item._id.toString()),
+      );
+
+    // 查询成员姓名
+    const userList = await this.userService.getUserListByIds({
+      idList: workspaceMemberList.map((member) => member.userId),
+    });
+    const userInfoMap = userList.reduce((pre, cur) => {
+      const id = cur._id.toString();
+      pre[id] = cur;
+      return pre;
+    }, {});
+
+    const temp: Record<string, WorkspaceMember[]> = {};
+    const list = workspaceList.map(
+      (item: Workspace & { members: WorkspaceMember[] }) => {
+        temp[item._id.toString()] = item.members = [];
+        return item;
+      },
+    );
+
+    workspaceMemberList.forEach((member: WorkspaceMember) => {
+      (member as any).username = userInfoMap[member.userId.toString()].username;
+      temp[member.workspaceId.toString()].push(member);
+    });
+
+    return {
+      code: 200,
+      data: list,
     };
   }
 }

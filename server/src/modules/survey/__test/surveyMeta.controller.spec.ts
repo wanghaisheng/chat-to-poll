@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SurveyMetaController } from '../controllers/surveyMeta.controller';
 import { SurveyMetaService } from '../services/surveyMeta.service';
-import { LoggerProvider } from 'src/logger/logger.provider';
+import { Logger } from 'src/logger';
 import { HttpException } from 'src/exceptions/httpException';
 import { EXCEPTION_CODE } from 'src/enums/exceptionCode';
 import { CollaboratorService } from '../services/collaborator.service';
@@ -28,7 +28,12 @@ describe('SurveyMetaController', () => {
               .mockResolvedValue({ count: 0, data: [] }),
           },
         },
-        LoggerProvider,
+        {
+          provide: Logger,
+          useValue: {
+            error() {},
+          },
+        },
         {
           provide: CollaboratorService,
           useValue: {
@@ -54,18 +59,25 @@ describe('SurveyMetaController', () => {
       remark: '',
     };
 
+    const mockUser = {
+      username: 'test-user',
+      _id: new ObjectId(),
+    };
+
     const req = {
-      user: {
-        username: 'test-user',
-      },
+      user: mockUser,
       surveyMeta: survey,
     };
 
     const result = await controller.updateMeta(reqBody, req);
 
     expect(surveyMetaService.editSurveyMeta).toHaveBeenCalledWith({
-      title: reqBody.title,
-      remark: reqBody.remark,
+      operator: mockUser.username,
+      operatorId: mockUser._id.toString(),
+      survey: {
+        title: reqBody.title,
+        remark: reqBody.remark,
+      },
     });
 
     expect(result).toEqual({ code: 200 });
@@ -111,11 +123,15 @@ describe('SurveyMetaController', () => {
           data: [
             {
               _id: new ObjectId(),
-              createDate: date,
-              updateDate: date,
+              createdAt: date,
+              updatedAt: date,
               curStatus: {
                 date: date,
               },
+              subStatus: {
+                date: date,
+              },
+              surveyType: 'normal',
             },
           ],
         });
@@ -129,10 +145,7 @@ describe('SurveyMetaController', () => {
         count: 10,
         data: expect.arrayContaining([
           expect.objectContaining({
-            createDate: expect.stringMatching(
-              /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
-            ),
-            updateDate: expect.stringMatching(
+            createdAt: expect.stringMatching(
               /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
             ),
             curStatus: expect.objectContaining({
@@ -140,10 +153,17 @@ describe('SurveyMetaController', () => {
                 /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
               ),
             }),
+            subStatus: expect.objectContaining({
+              date: expect.stringMatching(
+                /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+              ),
+            }),
+            surveyType: 'normal',
           }),
         ]),
       },
     });
+
     expect(surveyMetaService.getSurveyMetaList).toHaveBeenCalledWith({
       pageNum: queryInfo.curPage,
       pageSize: queryInfo.pageSize,
@@ -170,7 +190,7 @@ describe('SurveyMetaController', () => {
           condition: [{ field: 'surveyType', value: 'normal' }],
         },
       ]),
-      order: JSON.stringify([{ field: 'createDate', value: -1 }]),
+      order: JSON.stringify([{ field: 'createdAt', value: -1 }]),
     };
     const userId = new ObjectId().toString();
     const req = {
@@ -190,8 +210,28 @@ describe('SurveyMetaController', () => {
       surveyIdList: [],
       userId,
       filter: { surveyType: 'normal', title: { $regex: 'hahah' } },
-      order: { createDate: -1 },
+      order: { createdAt: -1 },
       workspaceId: undefined,
     });
+  });
+
+  it('should handle Joi validation in getList', async () => {
+    const invalidQueryInfo: any = {
+      curPage: 'invalid',
+      pageSize: 10,
+    };
+    const req = {
+      user: {
+        username: 'test-user',
+        _id: new ObjectId(),
+      },
+    };
+
+    try {
+      await controller.getList(invalidQueryInfo, req);
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpException);
+      expect(error.code).toBe(EXCEPTION_CODE.PARAMETER_ERROR);
+    }
   });
 });

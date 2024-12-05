@@ -8,3 +8,12 @@ export const getRecycleList = (data) => {
     }
   })
 }
+
+export const getStatisticList = (data) => {
+  return axios.get('/survey/dataStatistic/aggregationStatis', {
+    params: {
+      ...data
+    }
+  })
+}
+

@@ -6,7 +6,17 @@ import { Workspace } from 'src/models/workspace.entity';
 import { SurveyMeta } from 'src/models/surveyMeta.entity';
 
 import { ObjectId } from 'mongodb';
-import { RECORD_STATUS } from 'src/enums';
+
+interface FindAllByIdWithPaginationParams {
+  workspaceIdList: string[];
+  page: number;
+  limit: number;
+  name?: string;
+}
+interface FindAllByIdWithPaginationResult {
+  list: Workspace[];
+  count: number;
+}
 
 @Injectable()
 export class WorkspaceService {
@@ -20,10 +30,13 @@ export class WorkspaceService {
   async create(workspace: {
     name: string;
     description: string;
+    owner: string;
     ownerId: string;
   }): Promise<Workspace> {
     const newWorkspace = this.workspaceRepository.create({
       ...workspace,
+      creatorId: workspace.ownerId,
+      creator: workspace.owner,
     });
     return this.workspaceRepository.save(newWorkspace);
   }
@@ -41,13 +54,120 @@ export class WorkspaceService {
   }: {
     workspaceIdList: string[];
   }): Promise<Workspace[]> {
+    const query = {
+      _id: {
+        $in: workspaceIdList.map((item) => new ObjectId(item)),
+      },
+      isDeleted: {
+        $ne: true,
+      },
+    };
+
     return this.workspaceRepository.find({
-      where: {
-        _id: {
-          $in: workspaceIdList.map((item) => new ObjectId(item)),
+      where: query,
+      order: {
+        _id: -1,
+      },
+      select: [
+        '_id',
+        'name',
+        'description',
+        'ownerId',
+        'creatorId',
+        'createdAt',
+      ],
+    });
+  }
+
+  async findAllByIdWithPagination({
+    workspaceIdList,
+    page,
+    limit,
+    name,
+  }: FindAllByIdWithPaginationParams): Promise<FindAllByIdWithPaginationResult> {
+    const skip = (page - 1) * limit;
+    if (!Array.isArray(workspaceIdList) || workspaceIdList.length === 0) {
+      return { list: [], count: 0 };
+    }
+    const query = {
+      _id: {
+        $in: workspaceIdList.map((m) => new ObjectId(m)),
+      },
+      isDeleted: {
+        $ne: true,
+      },
+    };
+    if (name) {
+      query['name'] = { $regex: name, $options: 'i' };
+    }
+    const [data, count] = await this.workspaceRepository.findAndCount({
+      where: query,
+      skip,
+      take: limit,
+      order: {
+        createdAt: -1,
+      },
+    });
+    return { list: data, count };
+  }
+
+  update({
+    id,
+    workspace,
+    operator,
+    operatorId,
+  }: {
+    id: string;
+    workspace: Partial<Workspace>;
+    operator: string;
+    operatorId: string;
+  }) {
+    workspace.updatedAt = new Date();
+    workspace.operator = operator;
+    workspace.operatorId = operatorId;
+    return this.workspaceRepository.update(id, workspace);
+  }
+
+  async delete(id: string, { operator, operatorId }) {
+    const workspaceRes = await this.workspaceRepository.updateOne(
+      {
+        _id: new ObjectId(id),
+      },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          operator,
+          operatorId,
         },
-        'curStatus.status': {
-          $ne: RECORD_STATUS.REMOVED,
+      },
+    );
+    const surveyRes = await this.surveyMetaRepository.updateMany(
+      {
+        workspaceId: id,
+      },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          operator,
+          operatorId,
+        },
+      },
+    );
+    return {
+      workspaceRes,
+      surveyRes,
+    };
+  }
+
+  // 用户下的所有空间
+  async findAllByUserId(userId: string) {
+    return await this.workspaceRepository.find({
+      where: {
+        ownerId: userId,
+        isDeleted: {
+          $ne: true,
         },
       },
       order: {
@@ -59,49 +179,8 @@ export class WorkspaceService {
         'name',
         'description',
         'ownerId',
-        'createDate',
+        'createdAt',
       ],
     });
-  }
-
-  update(id: string, workspace: Partial<Workspace>) {
-    return this.workspaceRepository.update(id, workspace);
-  }
-
-  async delete(id: string) {
-    const newStatus = {
-      status: RECORD_STATUS.REMOVED,
-      date: Date.now(),
-    };
-    const workspaceRes = await this.workspaceRepository.updateOne(
-      {
-        _id: new ObjectId(id),
-      },
-      {
-        $set: {
-          curStatus: newStatus,
-        },
-        $push: {
-          statusList: newStatus as never,
-        },
-      },
-    );
-    const surveyRes = await this.surveyMetaRepository.updateMany(
-      {
-        workspaceId: id,
-      },
-      {
-        $set: {
-          curStatus: newStatus,
-        },
-        $push: {
-          statusList: newStatus as never,
-        },
-      },
-    );
-    return {
-      workspaceRes,
-      surveyRes,
-    };
   }
 }

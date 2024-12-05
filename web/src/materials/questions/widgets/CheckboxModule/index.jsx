@@ -41,10 +41,11 @@ export default defineComponent({
     maxNum: {
       type: [Number, String],
       default: 1
-    }
+    },
   },
   emits: ['change'],
   setup(props, { emit }) {
+    
     const disableState = computed(() => {
       if (!props.maxNum) {
         return false
@@ -53,7 +54,7 @@ export default defineComponent({
     })
     const isDisabled = (item) => {
       const { value } = props
-      return disableState.value && !includes(value, item.value)
+      return disableState.value && !includes(value, item.hash)
     }
     const myOptions = computed(() => {
       const { options } = props
@@ -107,6 +108,7 @@ export default defineComponent({
         options={myOptions}
         onChange={onChange}
         value={value}
+        layout={this.layout}
       >
         {{
           selectMore: (scoped) => {
